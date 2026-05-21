@@ -1,0 +1,5 @@
+streamlit
+pyswisseph
+swisseph
+pandas
+plotly
