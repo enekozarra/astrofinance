@@ -180,7 +180,7 @@ REGENTE_DIA = {
 def jd(fecha):
     return swe.julday(fecha.year, fecha.month, fecha.day, 13.5)
 
-@st.cache_data
+# @st.cache_data
 def obtener_posiciones(fecha):
     flags = swe.FLG_SIDEREAL | swe.FLG_SPEED
     j = jd(fecha)
@@ -223,7 +223,7 @@ def obtener_posiciones(fecha):
 
     return pd.DataFrame(filas)
 
-@st.cache_data
+# @st.cache_data
 def obtener_luna(fecha):
     flags = swe.FLG_SIDEREAL
     j = jd(fecha)
@@ -402,7 +402,7 @@ def buscar_movimientos(planeta, fecha):
 
     return eventos
 
-@st.cache_data
+# @st.cache_data
 def datos_macro(fecha):
     df = obtener_posiciones(fecha)
 
@@ -647,7 +647,7 @@ def grafico_gauss(fecha_actual, entrada, pico, salida, titulo):
 
     return fig
 
-@st.cache_data
+# @st.cache_data
 def calcular_conjunciones(fecha, orbe=12):
 
     df = obtener_posiciones(fecha)
