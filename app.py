@@ -1030,9 +1030,9 @@ col_fecha, _ = st.columns([1, 20])
 with col_fecha:
     fecha = st.date_input(
     "Selecciona fecha",
-    datetime.today(),
+    datetime.utcnow(),
     format="DD/MM/YYYY"
-    )
+)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Dashboard",
