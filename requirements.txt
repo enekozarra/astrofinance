@@ -1,5 +1,7 @@
 streamlit
 pyswisseph
-swisseph
 pandas
 plotly
+yfinance
+pillow
+numpy
