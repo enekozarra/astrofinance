@@ -1,3 +1,5 @@
+import yfinance as yf
+import numpy as np
 import streamlit as st
 import swisseph as swe
 from datetime import datetime, timedelta
@@ -137,6 +139,13 @@ MACRO_RELEVANTES = [
     "☊ Rahu",
     "☋ Ketu",
     "♂ Marte"
+]
+
+MARKET_REGIMES = [
+    "Bull",
+    "Bear",
+    "Sideways",
+    "Volatile"
 ]
 
 SIGNOS = [
@@ -1034,12 +1043,13 @@ with col_fecha:
     format="DD/MM/YYYY"
 )
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Dashboard",
     "Macro",
     "Calendario Lunar",
-    "Conjunciones",
-    "Forecast Semanal"
+    "Forecast Semanal",
+    "Forecast Anual",
+    "Backtest"
     
 ])
 
@@ -1678,338 +1688,277 @@ with tab3:
             scrolling=False
         )
 
-with tab4:
+def calcular_forecast_dia(dia, market_regime):
+    macro = datos_macro(dia)
+    top = macro.iloc[0]
 
-    st.subheader("☌ Conjunciones Planetarias")
+    nombre = top["Planeta"]
+    signo = top["Signo"]
 
-    orbe = st.slider(
-        "Orbe de conjunción",
-        min_value=1,
-        max_value=20,
-        value=15
-    )
+    fase, nak = obtener_luna(dia)
+    conj_dia, _ = calcular_conjunciones(dia, 8)
+    posiciones = obtener_posiciones(dia)
 
-    conj, stelliums = calcular_conjunciones(fecha, orbe)
+    direction_score = 0
+    volatility_score = 0
+    speculative_score = 0
+    retro_bonus = 0
+    dignidad_bonus = 0
+    regime_bonus = 0
 
-    if conj.empty:
+    # Luna
+    if fase in ["Creciente", "Creciente avanzada"]:
+        direction_score += 12
+    elif fase in ["Menguante", "Luna nueva"]:
+        direction_score -= 10
+    elif fase == "Luna llena":
+        volatility_score += 16
+    elif fase == "Cuarto creciente":
+        volatility_score += 8
+    elif fase == "Cuarto menguante":
+        volatility_score += 10
 
-        st.info("No hay conjunciones relevantes para esta fecha.")
+    # Nakshatras
+    if nak in ["Rohini", "Pushya", "Hasta", "Revati", "Uttara Phalguni"]:
+        direction_score += 14
 
-    else:
-        if stelliums:
+    if nak in ["Ashlesha", "Ardra", "Mula", "Purva Bhadrapada", "Shatabhisha"]:
+        volatility_score += 20
+        speculative_score += 12
 
-            st.markdown("""
-            <div style="
-                text-align:center;
-                color:white;
-                font-size:40px;
-                font-weight:800;
-                margin-top:20px;
-                margin-bottom:18px;
-            ">
-                ✨ Stelliums detectados
-            </div>
-            """, unsafe_allow_html=True)
+    if nak in ["Bharani", "Jyeshtha", "Magha"]:
+        direction_score -= 12
 
-            for s in stelliums:
+    # Día semanal
+    weekday = dia.weekday()
 
-                left_space, center, right_space = st.columns([0.9, 0.6, 0.9])
+    if weekday == 1:      # Martes
+        volatility_score += 10
+    elif weekday == 2:    # Miércoles
+        speculative_score += 4
+    elif weekday == 3:    # Jueves
+        direction_score += 8
+    elif weekday == 4:    # Viernes
+        direction_score += 3
+        volatility_score -= 2
+    elif weekday == 5:    # Sábado
+        direction_score -= 8
 
-                with center:
+    # Retrógrados: usar TODOS los planetas, no solo macro
+    for _, p in posiciones.iterrows():
+        planeta = p["Planeta"]
 
-                    st.markdown(f"""
-                    <div style="
-                        background:rgba(20,60,120,0.45);
-                        border:1px solid rgba(120,180,255,0.18);
-                        border-radius:14px;
-                        padding:14px;
-                        text-align:center;
-                        color:#7ec8ff;
-                        font-size:24px;
-                        font-weight:800;
-                        margin-bottom:24px;
-                    ">
-                        {' · '.join(s['planetas'])}
-                    </div>
-                    """, unsafe_allow_html=True)
+        if not p["Retrógrado"]:
+            continue
 
-        left, mid, right = st.columns([0.25, 1, 0.25])
+        if "Rahu" in planeta or "Ketu" in planeta:
+            continue
 
-        with mid:
-            cols = st.columns(2, gap="small")
+        if "Saturno" in planeta:
+            direction_score -= 12
+        elif "Júpiter" in planeta:
+            direction_score -= 6
+        elif "Marte" in planeta:
+            volatility_score += 14
+        elif "Mercurio" in planeta:
+            speculative_score += 10
+            volatility_score += 4
+        elif "Venus" in planeta:
+            direction_score -= 4
 
-            for i, (_, row) in enumerate(conj.iterrows()):
-
-                with cols[i % 2]:
-
-                    with st.container(key=f"conj_card_{i}"):
-
-                        p1 = row["Planeta 1"]
-                        p2 = row["Planeta 2"]
-
-                        archivo1 = (
-                            p1.split(" ", 1)[1]
-                            .lower()
-                            .replace("ú", "u")
-                        )
-
-                        archivo2 = (
-                            p2.split(" ", 1)[1]
-                            .lower()
-                            .replace("ú", "u")
-                        )
-
-                        img1 = f"assets/{archivo1}.png"
-                        img2 = f"assets/{archivo2}.png"
-
-                        col1, col2, col3 = st.columns([1, 0.18, 1])
-
-                    # ---------------- LEFT ----------------
-
-                    with col1:
-
-                        if os.path.exists(img1):
-                            st.image(img1, width=140)
-
-                        st.markdown(f"## {p1}")
-
-                        if row["Retro1"]:
-                            st.error("🔴 Retrógrado")
-                        else:
-                            st.success("🟢 Directo")
-
-                        st.write(f"**Orbe:** {row['Orbe']}°")
-                        st.write(f"**Signo:** {row['Signo']}")
-
-                        if row["Intensidad"] == "Extrema":
-                            intensidad_color = "🔴"
-
-                        elif row["Intensidad"] == "Alta":
-                            intensidad_color = "🟠"
-
-                        elif row["Intensidad"] == "Media":
-                            intensidad_color = "🟡"
-
-                        else:
-                            intensidad_color = "⚪"
-
-                        st.info(f"""
-                        {intensidad_color} Intensidad: {row['Intensidad']}
-
-                        ⚡ Score Macro: {row['Score']}
-
-                        🌊 Naturaleza: {row['Naturaleza']}
-
-                        📈 Volatilidad: {row['Volatilidad']}
-
-                        🕰 Duración: {row['Duración']}
-                        """)
-
-                    # ---------------- CENTER ----------------
-
-                    with col2:
-
-                        st.markdown(
-                            """
-                            <div style="
-                                text-align:center;
-                                font-size:60px;
-                                margin-top:60px;
-                                color:#ffd166;
-                            ">
-                                ☌
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-
-                    # ---------------- RIGHT ----------------
-
-                    with col3:
-
-                        if os.path.exists(img2):
-                            st.image(img2, width=140)
-
-                        st.markdown(f"## {p2}")
-
-                        if row["Retro2"]:
-                            st.error("🔴 Retrógrado")
-                        else:
-                            st.success("🟢 Directo")
-
-    st.divider()
-
-    st.subheader("🜂 Rueda Zodiacal")
-
-    df_zodiaco = obtener_posiciones(fecha)
-
-    fig = go.Figure()
-
-    fig.add_shape(
-        type="circle",
-        x0=-1,
-        y0=-1,
-        x1=1,
-        y1=1,
-        fillcolor="rgba(5,10,20,0.88)",
-        line=dict(
-            color="rgba(255,215,100,0.20)",
-            width=2
-        ),
-        layer="below"
-    )
-
-    # CÍRCULOS
-    for r in [0.55, 0.75]:
-        fig.add_shape(
-            type="circle",
-            x0=-r,
-            y0=-r,
-            x1=r,
-            y1=r,
-            line=dict(color="rgba(255,215,100,0.22)", width=1),
-            fillcolor="rgba(0,0,0,0)"
-        )
-
-    # DIVISIONES DE SIGNOS
-    for i in range(12):
-        ang = math.radians(90 - i * 30)
-
-        fig.add_shape(
-            type="line",
-            x0=0,
-            y0=0,
-            x1=math.cos(ang),
-            y1=math.sin(ang),
-            line=dict(color="rgba(255,255,255,0.12)", width=1)
-        )
-
-    # SIGNOS
-    signos_simbolos = [
-        "♈ Aries", "♉ Tauro", "♊ Géminis", "♋ Cáncer",
-        "♌ Leo", "♍ Virgo", "♎ Libra", "♏ Escorpio",
-        "♐ Sagitario", "♑ Capricornio", "♒ Acuario", "♓ Piscis"
-    ]
-
-    for i, signo in enumerate(signos_simbolos):
-        ang = math.radians(90 - i * 30 - 15)
-
-        fig.add_annotation(
-            x=0.93 * math.cos(ang),
-            y=0.93 * math.sin(ang),
-            text=signo,
-            showarrow=False,
-            font=dict(size=14, color="#ffdf80")
-        )
-
-    # PLANETAS CON IMÁGENES
-    mapa_imgs = {
-        "☉ Sol": "assets/sol.png",
-        "☽ Luna": "assets/luna.png",
-        "♂ Marte": "assets/marte.png",
-        "☿ Mercurio": "assets/mercurio.png",
-        "♃ Júpiter": "assets/jupiter.png",
-        "♀ Venus": "assets/venus.png",
-        "♄ Saturno": "assets/saturno.png",
-        "☊ Rahu": "assets/rahu.png",
-        "☋ Ketu": "assets/ketu.png",
+    # Dignidad del dominante
+    EXALTACIONES = {
+        "Sol": "Aries",
+        "Luna": "Tauro",
+        "Marte": "Capricornio",
+        "Mercurio": "Virgo",
+        "Júpiter": "Cáncer",
+        "Venus": "Piscis",
+        "Saturno": "Libra",
     }
 
-    for idx, (_, row) in enumerate(df_zodiaco.iterrows()):
+    DEBILITADOS = {
+        "Sol": "Libra",
+        "Luna": "Escorpio",
+        "Marte": "Cáncer",
+        "Mercurio": "Piscis",
+        "Júpiter": "Capricornio",
+        "Venus": "Virgo",
+        "Saturno": "Aries",
+    }
 
-        planeta = row["Planeta"]
-        lon = row["Longitud"]
+    planeta_limpio = nombre.split(" ", 1)[1]
 
-        ang = math.radians(90 - lon)
+    if planeta_limpio in EXALTACIONES and signo == EXALTACIONES[planeta_limpio]:
+        dignidad_bonus += 12
+    elif planeta_limpio in DEBILITADOS and signo == DEBILITADOS[planeta_limpio]:
+        dignidad_bonus -= 12
 
-        radio = 0.66 + (idx % 3) * 0.045
+    # Conjunciones como activadores
+    conj_bonus = 0
 
-        x = radio * math.cos(ang)
-        y = radio * math.sin(ang)
+    for _, c in conj_dia.iterrows():
+        pares = [c["Planeta 1"], c["Planeta 2"]]
+        fuerza = c["Score"] / 45
 
-        ruta = mapa_imgs.get(planeta)
+        if "☽ Luna" in pares:
+            fuerza *= 0.45
 
-        if ruta and os.path.exists(ruta):
+        if "☊ Rahu" in pares:
+            speculative_score += 30 * fuerza
+            volatility_score += 18 * fuerza
 
-            fig.add_layout_image(
-                dict(
-                    source=f"data:image/png;base64,{get_base64(ruta)}",
-                    x=x,
-                    y=y,
-                    xref="x",
-                    yref="y",
-                    sizex=0.18,
-                    sizey=0.18,
-                    xanchor="center",
-                    yanchor="middle",
-                    layer="above"
-                )
-            )
+        if "☋ Ketu" in pares:
+            direction_score -= 8 * fuerza
+            volatility_score += 8 * fuerza
 
-        estado = "℞" if row["Retrógrado"] else "•"
+        if "♂ Marte" in pares:
+            volatility_score += 22 * fuerza
+            direction_score -= 4 * fuerza
 
-        color_estado = "#ff4d4d" if row["Retrógrado"] else "#00ff99"
+        if "♄ Saturno" in pares:
+            direction_score -= 14 * fuerza
 
-        texto_planeta = (
-            f"{planeta}<br>"
-            f"<span style='color:#ffd166;font-size:11px'>"
-            f"{row['Signo']} {row['Grado']}°"
-            f"</span><br>"
-            f"<span style='color:{color_estado};font-size:10px'>"
-            f"{estado} {'Retrógrado' if row['Retrógrado'] else 'Directo'}"
-            f"</span>"
-        )
+        if "♃ Júpiter" in pares:
+            direction_score += 16 * fuerza
 
-        fig.add_annotation(
-            x=x,
-            y=y - 0.12,
-            text=texto_planeta,
-            showarrow=False,
-            align="center",
-            font=dict(size=12, color="white")
-        )
+        if c["Naturaleza"] == "Expansiva":
+            direction_score += 10 * fuerza
+            conj_bonus += c["Score"] * 0.08
+        elif c["Naturaleza"] == "Contractiva":
+            direction_score -= 10 * fuerza
+            conj_bonus -= c["Score"] * 0.08
 
-    fig.update_layout(
-        height=720,
-        template="plotly_dark",
-        dragmode="pan",
-        uirevision=True,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=20, r=20, t=30, b=20),
-        xaxis=dict(
-            visible=False,
-            range=[-1.15, 1.15],
-            scaleanchor="y"
-        ),
-        yaxis=dict(
-            visible=False,
-            range=[-1.15, 1.15]
-        ),
-        showlegend=False
+    conj_bonus = max(min(conj_bonus, 14), -14)
+
+    # Régimen de mercado
+    if "Rahu" in nombre:
+        speculative_score += 14
+        volatility_score += 10
+        regime_bonus += {"Bull": 10, "Bear": -12, "Sideways": 2, "Volatile": 6}.get(market_regime, 0)
+
+    elif "Júpiter" in nombre:
+        direction_score += 24
+        regime_bonus += {"Bull": 8, "Bear": -4}.get(market_regime, 0)
+
+    elif "Saturno" in nombre:
+        direction_score -= 26
+        regime_bonus += {"Bear": -10, "Bull": -3}.get(market_regime, 0)
+
+    elif "Marte" in nombre:
+        volatility_score += 14
+        regime_bonus += {"Bull": 5, "Bear": -8}.get(market_regime, 0)
+
+    direction_score = max(min(direction_score, 100), -100)
+    volatility_score = max(min(volatility_score, 100), 0)
+    speculative_score = max(min(speculative_score, 100), 0)
+
+    score = round(
+        top["Peso"]
+        + top["Influencia"] * 0.35
+        + dignidad_bonus
+        + conj_bonus
+        + regime_bonus
+        + direction_score * 0.42
+        - volatility_score * 0.08
+        + speculative_score * 0.02
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={
-            "displayModeBar": True,
-            "scrollZoom": True,
-            "modeBarButtonsToRemove": [
-                "select2d",
-                "lasso2d"
-            ]
-        }
+    score = max(min(score, 100), 0)
+
+    bias_market = calcular_bias_mercado(
+        dia,
+        macro,
+        fase,
+        nak,
+        market_regime,
+        score,
+        nombre
     )
 
-    MARKET_REGIMES = [
-    "Bull",
-    "Bear",
-    "Sideways",
-    "Volatile"
-]
+    return {
+        "dia": dia,
+        "macro": macro,
+        "top": top,
+        "fase": fase,
+        "nak": nak,
+        "score": score,
+        "direction_score": direction_score,
+        "volatility_score": volatility_score,
+        "speculative_score": speculative_score,
+        "bias_market": bias_market,
+    }
 
-with tab5:
+
+    precios = yf.download(asset, period="1y", auto_adjust=False, progress=False)
+
+    close = precios["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close[asset]
+
+    close = close.dropna()
+
+    ma20 = close.rolling(20).mean()
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+
+    precio = close.iloc[-1]
+
+    ret_20d = (precio / close.iloc[-20] - 1) * 100
+    ret_60d = (precio / close.iloc[-60] - 1) * 100
+
+    vol_20d = close.pct_change().tail(20).std() * 100
+
+    score = 0
+
+    if precio > ma200.iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
+    if ma20.iloc[-1] > ma50.iloc[-1]:
+        score += 1
+    else:
+        score -= 1
+
+    if ret_20d > 2:
+        score += 1
+    elif ret_20d < -2:
+        score -= 1
+
+    if ret_60d > 5:
+        score += 1
+    elif ret_60d < -5:
+        score -= 1
+
+    st.write(
+    f"Precio={precio:.2f}",
+    f"Ret20={ret_20d:.2f}",
+    f"Ret60={ret_60d:.2f}",
+    f"Vol={vol_20d:.2f}",
+    f"Score={score}"
+    )
+
+    # Caída fuerte reciente: régimen bajista táctico
+    if ret_20d < -4:
+        return "Bear"
+
+    # Caída moderada tras subida previa: lateral / distribución
+    if ret_20d < -2 and ret_60d > 0:
+        return "Sideways"
+
+    # Volatilidad alta sin dirección clara
+    if vol_20d > 1.8:
+        return "Volatile"
+
+    if score >= 3:
+        return "Bull"
+    elif score <= -2:
+        return "Bear"
+    else:
+        return "Sideways"
+
+with tab4:
 
     st.markdown("""
     <div style="
@@ -2024,9 +1973,8 @@ with tab5:
     """, unsafe_allow_html=True)
 
     market_regime = st.selectbox(
-        "Fase de mercado",
-        MARKET_REGIMES,
-        index=0
+        "Régimen de mercado",
+        MARKET_REGIMES
     )
 
     cards_html = ""
@@ -2597,3 +2545,1092 @@ with tab5:
         """,
         height=700
     )
+
+    st.divider()
+
+    st.markdown("""
+    <div style="
+        text-align:center;
+        color:white;
+        font-size:42px;
+        font-weight:800;
+        margin-top:40px;
+        margin-bottom:30px;
+    ">
+        ☌ Conjunciones Planetarias
+    </div>
+    """, unsafe_allow_html=True)
+    
+
+    orbe = st.slider(
+        "Orbe de conjunción",
+        min_value=1,
+        max_value=20,
+        value=15
+    )
+
+    conj, stelliums = calcular_conjunciones(fecha, orbe)
+
+    if conj.empty:
+
+        st.info("No hay conjunciones relevantes para esta fecha.")
+
+    else:
+        if stelliums:
+
+            st.markdown("""
+            <div style="
+                text-align:center;
+                color:white;
+                font-size:40px;
+                font-weight:800;
+                margin-top:20px;
+                margin-bottom:18px;
+            ">
+                ✨ Stelliums detectados
+            </div>
+            """, unsafe_allow_html=True)
+
+            for s in stelliums:
+
+                left_space, center, right_space = st.columns([0.9, 0.6, 0.9])
+
+                with center:
+
+                    st.markdown(f"""
+                    <div style="
+                        background:rgba(20,60,120,0.45);
+                        border:1px solid rgba(120,180,255,0.18);
+                        border-radius:14px;
+                        padding:14px;
+                        text-align:center;
+                        color:#7ec8ff;
+                        font-size:24px;
+                        font-weight:800;
+                        margin-bottom:24px;
+                    ">
+                        {' · '.join(s['planetas'])}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        left, mid, right = st.columns([0.25, 1, 0.25])
+
+        with mid:
+            cols = st.columns(2, gap="small")
+
+            for i, (_, row) in enumerate(conj.iterrows()):
+
+                with cols[i % 2]:
+
+                    with st.container(key=f"conj_card_{i}"):
+
+                        p1 = row["Planeta 1"]
+                        p2 = row["Planeta 2"]
+
+                        archivo1 = (
+                            p1.split(" ", 1)[1]
+                            .lower()
+                            .replace("ú", "u")
+                        )
+
+                        archivo2 = (
+                            p2.split(" ", 1)[1]
+                            .lower()
+                            .replace("ú", "u")
+                        )
+
+                        img1 = f"assets/{archivo1}.png"
+                        img2 = f"assets/{archivo2}.png"
+
+                        col1, col2, col3 = st.columns([1, 0.18, 1])
+
+                    # ---------------- LEFT ----------------
+
+                    with col1:
+
+                        if os.path.exists(img1):
+                            st.image(img1, width=140)
+
+                        st.markdown(f"## {p1}")
+
+                        if row["Retro1"]:
+                            st.error("🔴 Retrógrado")
+                        else:
+                            st.success("🟢 Directo")
+
+                        st.write(f"**Orbe:** {row['Orbe']}°")
+                        st.write(f"**Signo:** {row['Signo']}")
+
+                        if row["Intensidad"] == "Extrema":
+                            intensidad_color = "🔴"
+
+                        elif row["Intensidad"] == "Alta":
+                            intensidad_color = "🟠"
+
+                        elif row["Intensidad"] == "Media":
+                            intensidad_color = "🟡"
+
+                        else:
+                            intensidad_color = "⚪"
+
+                        st.info(f"""
+                        {intensidad_color} Intensidad: {row['Intensidad']}
+
+                        ⚡ Score Macro: {row['Score']}
+
+                        🌊 Naturaleza: {row['Naturaleza']}
+
+                        📈 Volatilidad: {row['Volatilidad']}
+
+                        🕰 Duración: {row['Duración']}
+                        """)
+
+                    # ---------------- CENTER ----------------
+
+                    with col2:
+
+                        st.markdown(
+                            """
+                            <div style="
+                                text-align:center;
+                                font-size:60px;
+                                margin-top:60px;
+                                color:#ffd166;
+                            ">
+                                ☌
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                    # ---------------- RIGHT ----------------
+
+                    with col3:
+
+                        if os.path.exists(img2):
+                            st.image(img2, width=140)
+
+                        st.markdown(f"## {p2}")
+
+                        if row["Retro2"]:
+                            st.error("🔴 Retrógrado")
+                        else:
+                            st.success("🟢 Directo")
+
+    st.divider()
+
+    st.subheader("🜂 Rueda Zodiacal")
+
+    df_zodiaco = obtener_posiciones(fecha)
+
+    fig = go.Figure()
+
+    fig.add_shape(
+        type="circle",
+        x0=-1,
+        y0=-1,
+        x1=1,
+        y1=1,
+        fillcolor="rgba(5,10,20,0.88)",
+        line=dict(
+            color="rgba(255,215,100,0.20)",
+            width=2
+        ),
+        layer="below"
+    )
+
+    # CÍRCULOS
+    for r in [0.55, 0.75]:
+        fig.add_shape(
+            type="circle",
+            x0=-r,
+            y0=-r,
+            x1=r,
+            y1=r,
+            line=dict(color="rgba(255,215,100,0.22)", width=1),
+            fillcolor="rgba(0,0,0,0)"
+        )
+
+    # DIVISIONES DE SIGNOS
+    for i in range(12):
+        ang = math.radians(90 - i * 30)
+
+        fig.add_shape(
+            type="line",
+            x0=0,
+            y0=0,
+            x1=math.cos(ang),
+            y1=math.sin(ang),
+            line=dict(color="rgba(255,255,255,0.12)", width=1)
+        )
+
+    # SIGNOS
+    signos_simbolos = [
+        "♈ Aries", "♉ Tauro", "♊ Géminis", "♋ Cáncer",
+        "♌ Leo", "♍ Virgo", "♎ Libra", "♏ Escorpio",
+        "♐ Sagitario", "♑ Capricornio", "♒ Acuario", "♓ Piscis"
+    ]
+
+    for i, signo in enumerate(signos_simbolos):
+        ang = math.radians(90 - i * 30 - 15)
+
+        fig.add_annotation(
+            x=0.93 * math.cos(ang),
+            y=0.93 * math.sin(ang),
+            text=signo,
+            showarrow=False,
+            font=dict(size=14, color="#ffdf80")
+        )
+
+    # PLANETAS CON IMÁGENES
+    mapa_imgs = {
+        "☉ Sol": "assets/sol.png",
+        "☽ Luna": "assets/luna.png",
+        "♂ Marte": "assets/marte.png",
+        "☿ Mercurio": "assets/mercurio.png",
+        "♃ Júpiter": "assets/jupiter.png",
+        "♀ Venus": "assets/venus.png",
+        "♄ Saturno": "assets/saturno.png",
+        "☊ Rahu": "assets/rahu.png",
+        "☋ Ketu": "assets/ketu.png",
+    }
+
+    for idx, (_, row) in enumerate(df_zodiaco.iterrows()):
+
+        planeta = row["Planeta"]
+        lon = row["Longitud"]
+
+        ang = math.radians(90 - lon)
+
+        radio = 0.66 + (idx % 3) * 0.045
+
+        x = radio * math.cos(ang)
+        y = radio * math.sin(ang)
+
+        ruta = mapa_imgs.get(planeta)
+
+        if ruta and os.path.exists(ruta):
+
+            fig.add_layout_image(
+                dict(
+                    source=f"data:image/png;base64,{get_base64(ruta)}",
+                    x=x,
+                    y=y,
+                    xref="x",
+                    yref="y",
+                    sizex=0.18,
+                    sizey=0.18,
+                    xanchor="center",
+                    yanchor="middle",
+                    layer="above"
+                )
+            )
+
+        estado = "℞" if row["Retrógrado"] else "•"
+
+        color_estado = "#ff4d4d" if row["Retrógrado"] else "#00ff99"
+
+        texto_planeta = (
+            f"{planeta}<br>"
+            f"<span style='color:#ffd166;font-size:11px'>"
+            f"{row['Signo']} {row['Grado']}°"
+            f"</span><br>"
+            f"<span style='color:{color_estado};font-size:10px'>"
+            f"{estado} {'Retrógrado' if row['Retrógrado'] else 'Directo'}"
+            f"</span>"
+        )
+
+        fig.add_annotation(
+            x=x,
+            y=y - 0.12,
+            text=texto_planeta,
+            showarrow=False,
+            align="center",
+            font=dict(size=12, color="white")
+        )
+
+    fig.update_layout(
+        height=720,
+        template="plotly_dark",
+        dragmode="pan",
+        uirevision=True,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=20, r=20, t=30, b=20),
+        xaxis=dict(
+            visible=False,
+            range=[-1.15, 1.15],
+            scaleanchor="y"
+        ),
+        yaxis=dict(
+            visible=False,
+            range=[-1.15, 1.15]
+        ),
+        showlegend=False
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displayModeBar": True,
+            "scrollZoom": True,
+            "modeBarButtonsToRemove": [
+                "select2d",
+                "lasso2d"
+            ]
+        }
+    )
+
+PLANETAS_GENERACIONALES = {
+    "♅ Urano": swe.URANUS,
+    "♆ Neptuno": swe.NEPTUNE,
+    "♇ Plutón": swe.PLUTO,
+}
+
+MESES_ES = [
+    "Enero", "Febrero", "Marzo", "Abril",
+    "Mayo", "Junio", "Julio", "Agosto",
+    "Septiembre", "Octubre", "Noviembre", "Diciembre"
+]
+
+def color_score(score):
+    if score >= 65:
+        return "#2ecc71"
+    elif score >= 45:
+        return "#f1c40f"
+    return "#e74c3c"
+
+
+def obtener_generacionales(fecha):
+    flags = swe.FLG_SIDEREAL | swe.FLG_SPEED
+    j = jd(fecha)
+
+    filas = []
+
+    for nombre, pid in PLANETAS_GENERACIONALES.items():
+        data = swe.calc_ut(j, pid, flags)[0]
+        lon = data[0] % 360
+        speed = data[3]
+
+        filas.append({
+            "Planeta": nombre,
+            "Signo": SIGNOS[int(lon // 30)],
+            "Grado": round(lon % 30, 2),
+            "Retrógrado": speed < 0
+        })
+
+    return pd.DataFrame(filas)
+
+
+def calcular_forecast_anual_mes(dia):
+    muestras = [
+        datetime(dia.year, dia.month, 5),
+        datetime(dia.year, dia.month, 15),
+        datetime(dia.year, dia.month, 25),
+    ]
+
+    direction_vals = []
+    volatility_vals = []
+    speculative_vals = []
+    macros = []
+
+    for f in muestras:
+        macro = datos_macro(f)
+        macros.append(macro)
+
+        direction = 0
+        volatility = 0
+        speculative = 0
+
+        for _, p in macro.iterrows():
+            planeta = p["Planeta"]
+            peso = p["Peso"] / 100
+
+            if "Júpiter" in planeta:
+                direction += 45 * peso
+                speculative += 12 * peso
+                if p["Retrógrado"]:
+                    direction -= 6 * peso
+
+            elif "Saturno" in planeta:
+                direction -= 18 * peso
+                volatility += 4 * peso
+                if p["Retrógrado"]:
+                    direction -= 6 * peso
+                    volatility += 6 * peso
+
+            elif "Rahu" in planeta:
+                direction += 24 * peso
+                speculative += 36 * peso
+                volatility += 18 * peso
+
+            elif "Ketu" in planeta:
+                direction -= 8 * peso
+                speculative -= 10 * peso
+                volatility += 8 * peso
+
+            elif "Marte" in planeta:
+                direction -= 5 * peso
+                volatility += 30 * peso
+                if p["Retrógrado"]:
+                    volatility += 8 * peso
+
+        direction_vals.append(direction)
+        volatility_vals.append(volatility)
+        speculative_vals.append(speculative)
+
+    direction_score = sum(direction_vals) / len(direction_vals)
+    volatility_score = sum(volatility_vals) / len(volatility_vals)
+    speculative_score = sum(speculative_vals) / len(speculative_vals)
+
+    generacionales = obtener_generacionales(
+        datetime(dia.year, dia.month, 15)
+    )    
+    generacionales_txt = []
+
+    for _, p in generacionales.iterrows():
+        estado = "🔴 Retrógrado" if p["Retrógrado"] else "🟢 Directo"
+
+        generacionales_txt.append(
+            f"{p['Planeta']} en {p['Signo']} {p['Grado']}° {estado}"
+        )
+
+    macro_mid = macros[1]
+    top = macro_mid.iloc[0]
+
+    jugadores = []
+    for _, p in macro_mid.head(3).iterrows():
+        if "Rahu" in p["Planeta"] or "Ketu" in p["Planeta"]:
+            estado = "☊ Eje nodal"
+        else:
+            estado = "🔴 Retrógrado" if p["Retrógrado"] else "🟢 Directo"
+
+        jugadores.append(f"{p['Planeta']} · {p['Peso']}% · {estado}")
+
+    eventos = []
+    for _, p in macro_mid.iterrows():
+        for evento in ["Entrada", "Salida"]:
+            fecha_evento = p[evento]
+            if fecha_evento.month == dia.month and fecha_evento.year == dia.year:
+                eventos.append(
+                    f"{p['Planeta']} {evento.lower()} de signo ({fecha_evento.strftime('%d/%m')})"
+                )
+
+    score = round(
+        50
+        + direction_score * 0.55
+        - volatility_score * 0.10
+        + speculative_score * 0.18
+    )
+
+    score = max(min(score, 100), 0)
+
+    if direction_score >= 12:
+        clima = "🟢 EXPANSIVO"
+        resumen = [
+            "Confianza creciente",
+            "Mayor apetito por riesgo",
+            "Flujo comprador favorable"
+        ]
+
+    elif direction_score <= -12:
+        clima = "🔴 CONTRACTIVO"
+        resumen = [
+            "Presión macro",
+            "Menor apetito por riesgo",
+            "Mayor cautela inversora"
+        ]
+
+    elif speculative_score >= 18:
+        clima = "🟢 SESGO ALCISTA"
+        resumen = [
+            "Apetito por riesgo activo",
+            "Interés especulativo elevado",
+            "Rahu/Júpiter apoyan crecimiento"
+        ]
+
+    elif volatility_score >= 50:
+        clima = "🟠 VOLÁTIL"
+        resumen = [
+            "Movimientos bruscos",
+            "Alta incertidumbre",
+            "Dirección menos fiable"
+        ]
+
+    else:
+        clima = "🟡 TRANSICIÓN"
+        resumen = [
+            "Mercado mixto",
+            "Falta de convicción",
+            "Posible lateralidad"
+        ]
+
+    if "EXPANSIVO" in clima or "SESGO ALCISTA" in clima:
+        bias = "🟢 Favorable"
+    elif "CONTRACTIVO" in clima:
+        bias = "🔴 Riesgo elevado"
+    elif "VOLÁTIL" in clima:
+        bias = "🟠 Volátil"
+    else:
+        bias = "🟡 Mixto / prudente"
+
+    return {
+        "score": score,
+        "direction_score": round(direction_score, 1),
+        "volatility_score": round(volatility_score, 1),
+        "speculative_score": round(speculative_score, 1),
+        "bias": bias,
+        "top": top["Planeta"],
+        "top_estado": "☊ Eje nodal" if ("Rahu" in top["Planeta"] or "Ketu" in top["Planeta"]) else ("🔴 Retrógrado" if top["Retrógrado"] else "🟢 Directo"),
+        "jugadores": jugadores,
+        "clima": clima,
+        "resumen": resumen,
+        "contexto": clima,
+        "eventos": eventos[:4],
+        "generacionales": generacionales_txt,
+    }
+
+PLANET_RULES_V2 = {
+    "♃ Júpiter": {"direction": 15, "speculation": 5, "volatility": 1},
+    "♄ Saturno": {"direction": -12, "speculation": -3, "volatility": 2},
+    "☊ Rahu": {"direction": 8, "speculation": 18, "volatility": 8},
+    "☋ Ketu": {"direction": -4, "speculation": -18, "volatility": 6},
+    "♂ Marte": {"direction": 6, "speculation": 4, "volatility": 8},
+}
+
+PAIR_RULES_V2 = {
+    frozenset(["♃ Júpiter", "☊ Rahu"]): {
+        "direction": 12, "speculation": 12, "volatility": 4,
+        "label": "Júpiter + Rahu: expansión especulativa"
+    },
+    frozenset(["♃ Júpiter", "♂ Marte"]): {
+        "direction": 10, "speculation": 3, "volatility": 5,
+        "label": "Júpiter + Marte: impulso alcista"
+    },
+    frozenset(["♄ Saturno", "☋ Ketu"]): {
+        "direction": -15, "speculation": -10, "volatility": 4,
+        "label": "Saturno + Ketu: contracción"
+    },
+    frozenset(["♄ Saturno", "♂ Marte"]): {
+        "direction": 0, "speculation": 0, "volatility": 12,
+        "label": "Saturno + Marte: presión y fricción"
+    },
+    frozenset(["☊ Rahu", "♂ Marte"]): {
+        "direction": 6, "speculation": 12, "volatility": 12,
+        "label": "Rahu + Marte: FOMO / volatilidad"
+    },
+    frozenset(["♃ Júpiter", "♄ Saturno"]): {
+        "direction": 4, "speculation": -2, "volatility": -4,
+        "label": "Júpiter + Saturno: crecimiento controlado"
+    },
+    frozenset(["♄ Saturno", "☊ Rahu"]): {
+        "direction": 2, "speculation": 8, "volatility": 8,
+        "label": "Saturno + Rahu: tensión especulativa"
+    },
+    frozenset(["♃ Júpiter", "☋ Ketu"]): {
+        "direction": -2, "speculation": -8, "volatility": 2,
+        "label": "Júpiter + Ketu: expansión débil"
+    },
+}
+
+MACRO_ASTRO = ["♃ Júpiter", "♄ Saturno", "☊ Rahu", "☋ Ketu", "♂ Marte"]
+
+OWN_SIGNS = {
+    "♃ Júpiter": ["Sagitario", "Piscis"],
+    "♄ Saturno": ["Capricornio", "Acuario"],
+    "♂ Marte": ["Aries", "Escorpio"],
+    "☿ Mercurio": ["Géminis", "Virgo"],
+    "♀ Venus": ["Tauro", "Libra"],
+}
+
+EXALTATION = {
+    "♃ Júpiter": "Cáncer",
+    "♄ Saturno": "Libra",
+    "♂ Marte": "Capricornio",
+    "☿ Mercurio": "Virgo",
+    "♀ Venus": "Piscis",
+}
+
+DEBILITATION = {
+    "♃ Júpiter": "Capricornio",
+    "♄ Saturno": "Aries",
+    "♂ Marte": "Cáncer",
+    "☿ Mercurio": "Piscis",
+    "♀ Venus": "Virgo",
+}
+
+BASE_NATURE = {
+    "♃ Júpiter": {"direction": 10, "speculation": 4, "volatility": 1},
+    "♄ Saturno": {"direction": -3, "speculation": -1, "volatility": 4},
+    "☊ Rahu": {"direction": 4, "speculation": 14, "volatility": 8},
+    "☋ Ketu": {"direction": -2, "speculation": -8, "volatility": 5},
+    "♂ Marte": {"direction": 4, "speculation": 3, "volatility": 8},
+}
+
+SIGN_CONTEXT = {
+    "☊ Rahu": {
+        "Acuario": {"direction": 8, "speculation": 8, "volatility": 2},
+        "Géminis": {"direction": 3, "speculation": 5, "volatility": 2},
+        "Tauro": {"direction": 2, "speculation": 3, "volatility": 1},
+    },
+    "☋ Ketu": {
+        "Leo": {"direction": -2, "speculation": -4, "volatility": 2},
+        "Escorpio": {"direction": -3, "speculation": -5, "volatility": 3},
+        "Sagitario": {"direction": -1, "speculation": -3, "volatility": 1},
+    },
+}
+
+PAIR_RULES = {
+    frozenset(["♃ Júpiter", "☊ Rahu"]): {
+        "direction": 7, "speculation": 12, "volatility": 5,
+        "label": "Júpiter + Rahu: expansión especulativa"
+    },
+    frozenset(["♃ Júpiter", "♂ Marte"]): {
+        "direction": 8, "speculation": 3, "volatility": 5,
+        "label": "Júpiter + Marte: impulso"
+    },
+    frozenset(["♃ Júpiter", "♄ Saturno"]): {
+        "direction": 2, "speculation": -2, "volatility": -4,
+        "label": "Júpiter + Saturno: crecimiento controlado"
+    },
+    frozenset(["♃ Júpiter", "☋ Ketu"]): {
+        "direction": -4, "speculation": -8, "volatility": 3,
+        "label": "Júpiter + Ketu: expansión debilitada"
+    },
+    frozenset(["♄ Saturno", "☊ Rahu"]): {
+        "direction": -2, "speculation": 8, "volatility": 10,
+        "label": "Saturno + Rahu: tensión especulativa"
+    },
+    frozenset(["♄ Saturno", "☋ Ketu"]): {
+        "direction": -10, "speculation": -8, "volatility": 6,
+        "label": "Saturno + Ketu: contracción"
+    },
+    frozenset(["♄ Saturno", "♂ Marte"]): {
+        "direction": 0, "speculation": 0, "volatility": 12,
+        "label": "Saturno + Marte: presión / fricción"
+    },
+    frozenset(["☊ Rahu", "♂ Marte"]): {
+        "direction": -4, "speculation": 8, "volatility": 16,
+        "label": "Rahu + Marte: FOMO / movimiento violento"
+    },
+    frozenset(["☋ Ketu", "♂ Marte"]): {
+        "direction": -6, "speculation": -8, "volatility": 12,
+        "label": "Ketu + Marte: cortes bruscos / liquidación"
+    },
+}
+
+
+def aplicar_dignidad(planeta, signo, d, s, v):
+    if EXALTATION.get(planeta) == signo:
+        if planeta == "♄ Saturno":
+            return d + 2, s, max(v - 2, 0)
+        return d * 1.35, s * 1.20, v
+
+    if signo in OWN_SIGNS.get(planeta, []):
+        if planeta == "♄ Saturno":
+            return d + 2, s, max(v - 1, 0)
+        return d * 1.20, s * 1.10, v
+
+    if DEBILITATION.get(planeta) == signo:
+        if planeta == "♄ Saturno":
+            return d * 1.35, s, v + 4
+        if planeta == "♂ Marte":
+            return d - 5, s - 2, v + 5
+        return d * 0.55, s * 0.70, v + 3
+
+    return d, s, v
+
+
+def aplicar_retro(planeta, retro, d, s, v):
+    if not retro:
+        return d, s, v
+
+    if planeta == "♃ Júpiter":
+        return d * 0.65, s * 0.80, v + 2
+
+    if planeta == "♄ Saturno":
+        return d * 1.25, s * 1.10, v + 3
+
+    if planeta == "♂ Marte":
+        return d - 4, s, v * 1.35
+
+    return d, s, v
+
+
+def color_energia_v2(valor):
+    if valor >= 30:
+        return "🟢🟢🟢"
+
+    elif valor >= 18:
+        return "🟢🟢"
+
+    elif valor >= 8:
+        return "🟢"
+
+    elif valor > -8:
+        return "🟡"
+
+    elif valor > -18:
+        return "🟠"
+
+    return "🔴"
+
+
+def calcular_energia_semana_v2(dia):
+    
+    posiciones = obtener_posiciones(dia)
+    fase, _ = obtener_luna(dia)
+    conj, _ = calcular_conjunciones(dia, 8)
+
+    direction = 0
+    speculation = 0
+    volatility = 0
+    detalles = []
+
+    pos_dict = {
+        row["Planeta"]: row
+        for _, row in posiciones.iterrows()
+    }
+
+    # 1) Naturaleza + signo + dignidad + retro
+    for planeta in MACRO_ASTRO:
+        if planeta not in pos_dict:
+            continue
+
+        p = pos_dict[planeta]
+        signo = p["Signo"]
+        retro = bool(p["Retrógrado"])
+
+        base = BASE_NATURE[planeta]
+
+        d = base["direction"]
+        s = base["speculation"]
+        v = base["volatility"]
+
+        d, s, v = aplicar_dignidad(planeta, signo, d, s, v)
+        d, s, v = aplicar_retro(planeta, retro, d, s, v)
+
+        mods = SIGN_CONTEXT.get(planeta, {}).get(signo, {})
+        d += mods.get("direction", 0)
+        s += mods.get("speculation", 0)
+        v += mods.get("volatility", 0)
+
+        direction += d
+        speculation += s
+        volatility += v
+
+        estado = "🔴 Retro" if retro else "🟢 Directo"
+        detalles.append(
+            f"{planeta} en {signo} {p['Grado']}° · {estado} → Dir {round(d,1)} | Esp {round(s,1)} | Vol {round(v,1)}"
+        )
+
+    # 2) Conjunción por mismo signo, aunque no sea exacta
+    for pair, regla in PAIR_RULES.items():
+        a, b = list(pair)
+
+        if a in pos_dict and b in pos_dict:
+            same_sign = pos_dict[a]["Signo"] == pos_dict[b]["Signo"]
+
+            if same_sign:
+                direction += regla["direction"] * 0.45
+                speculation += regla["speculation"] * 0.45
+                volatility += regla["volatility"] * 0.45
+                detalles.append("Mismo signo: " + regla["label"])
+
+    # 3) Conjunción exacta por orbe
+    if not conj.empty:
+        for _, c in conj.iterrows():
+            par = frozenset([c["Planeta 1"], c["Planeta 2"]])
+
+            if par in PAIR_RULES:
+                regla = PAIR_RULES[par]
+                fuerza = min(c["Score"] / 100, 1.25)
+
+                direction += regla["direction"] * fuerza
+                speculation += regla["speculation"] * fuerza
+                volatility += regla["volatility"] * fuerza
+
+                detalles.append("Conjunción exacta: " + regla["label"])
+
+    # 4) Mercurio y Venus modulan, no mandan
+    for planeta in ["☿ Mercurio", "♀ Venus"]:
+        if planeta not in pos_dict:
+            continue
+
+        p = pos_dict[planeta]
+        retro = bool(p["Retrógrado"])
+        signo = p["Signo"]
+
+        if planeta == "☿ Mercurio":
+            d = -3 if retro else 2
+            s = -2 if retro else 2
+            v = 2 if retro else 0
+
+        else:
+            d = -2 if retro else 3
+            s = -1 if retro else 3
+            v = 1 if retro else 0
+
+        d, s, v = aplicar_dignidad(planeta, signo, d, s, v)
+
+        direction += d
+        speculation += s
+        volatility += v
+
+        detalles.append(
+            f"Modulador {planeta} en {signo} → Dir {round(d,1)} | Esp {round(s,1)} | Vol {round(v,1)}"
+        )
+
+    # 5) Luna: solo modula intensidad
+    if fase in ["Creciente", "Creciente avanzada"]:
+        direction += 2
+        detalles.append("Luna creciente: añade participación")
+
+    elif fase == "Luna llena":
+        speculation += 2
+        volatility += 4
+        detalles.append("Luna llena: emoción y volatilidad")
+
+    elif fase in ["Menguante", "Luna nueva"]:
+        direction -= 2
+        detalles.append("Luna menguante/nueva: reduce fuerza")
+
+    
+    energia = (
+        direction * 0.95
+        + speculation * 0.15
+    )
+
+    return {
+        "energia": round(energia, 1),
+        "color": color_energia_v2(energia),
+        "direction": round(direction, 1),
+        "speculation": round(speculation, 1),
+        "volatility": round(volatility, 1),
+        "fase": fase,
+        "detalles": detalles[:18],
+    }
+
+def calcular_semana_lunes_viernes_v2(fecha_ref):
+    lunes = fecha_ref - timedelta(days=fecha_ref.weekday())
+
+    dias = [lunes + timedelta(days=i) for i in range(5)]
+
+    resultados = []
+
+    for d in dias:
+        r = calcular_energia_semana_v2(d)
+        r["fecha"] = d
+        resultados.append(r)
+
+    energia_media = sum(r["energia"] for r in resultados) / len(resultados)
+    direction_media = sum(r["direction"] for r in resultados) / len(resultados)
+    speculation_media = sum(r["speculation"] for r in resultados) / len(resultados)
+    volatility_media = sum(r["volatility"] for r in resultados) / len(resultados)
+
+    energia_inicio = resultados[0]["energia"]
+    energia_fin = resultados[-1]["energia"]
+    tendencia = energia_fin - energia_inicio
+
+    if energia_media >= 8 and tendencia >= 0:
+        lectura = "🟢 Semana alcista"
+    elif energia_media >= 8 and tendencia < 0:
+        lectura = "🟡 Alcista con agotamiento"
+    elif energia_media <= -8 and tendencia <= 0:
+        lectura = "🔴 Semana bajista"
+    elif energia_media <= -8 and tendencia > 0:
+        lectura = "🟠 Bajista con rebote"
+    else:
+        lectura = "🟡 Semana mixta"
+
+    return {
+        "dias": resultados,
+        "energia_media": round(energia_media, 1),
+        "direction_media": round(direction_media, 1),
+        "speculation_media": round(speculation_media, 1),
+        "volatility_media": round(volatility_media, 1),
+        "energia_inicio": round(energia_inicio, 1),
+        "energia_fin": round(energia_fin, 1),
+        "tendencia": round(tendencia, 1),
+        "color": color_energia_v2(energia_media),
+        "lectura": lectura,
+    }
+
+with tab5:
+    st.header("📆 Forecast Anual")
+
+    st.subheader("🧪 Laboratorio semanal V2")
+
+    fecha_test = st.date_input(
+        "Fecha de prueba semanal",
+        datetime(2026, 4, 15),
+        format="DD/MM/YYYY",
+        key="fecha_test_v2"
+    )
+
+    resultado_test = calcular_energia_semana_v2(fecha_test)
+
+    st.metric("Energía semanal", f'{resultado_test["energia"]} {resultado_test["color"]}')
+    st.write(f'Dirección: {resultado_test["direction"]}')
+    st.write(f'Especulación: {resultado_test["speculation"]}')
+    st.write(f'Volatilidad: {resultado_test["volatility"]}')
+    st.write(f'Fase lunar: {resultado_test["fase"]}')
+
+    with st.expander("Ver detalles del cálculo"):
+        for d in resultado_test["detalles"]:
+            st.write(d)
+
+    st.divider()
+
+    año_anual = st.number_input(
+        "Año",
+        min_value=2000,
+        max_value=2100,
+        value=fecha.year,
+        key="año_anual"
+    )
+
+    cols = st.columns(3)
+
+    for i, mes_nombre in enumerate(MESES_ES):
+        dia_mes = datetime(año_anual, i + 1, 15)
+        forecast = calcular_forecast_anual_mes(dia_mes)
+
+        if "EXPANSIVO" in forecast["clima"] or "SESGO ALCISTA" in forecast["clima"]:
+            color = "#2ecc71"
+        elif "TRANSICIÓN" in forecast["clima"]:
+            color = "#f1c40f"
+        elif "VOLÁTIL" in forecast["clima"]:
+            color = "#f39c12"
+        else:
+            color = "#e74c3c"
+
+        eventos_html = "<br>".join(forecast["eventos"]) if forecast["eventos"] else "Sin eventos macro relevantes"
+        jugadores_html = "<br>".join(forecast["jugadores"])
+        generacionales_html = "<br>".join(forecast["generacionales"])
+
+        with cols[i % 3]:
+            html_card = f"""
+            <div style="background:{color}; padding:20px; border-radius:18px; margin-bottom:18px; color:#111; font-weight:700;">
+            <h3>{mes_nombre}</h3>
+
+            <p>Score: {forecast["score"]}/100</p>
+            <p>Dirección: {forecast["direction_score"]}</p>
+            <p>Volatilidad: {forecast["volatility_score"]}</p>
+            <p>Especulación: {forecast["speculative_score"]}</p>
+
+            <hr>
+
+            <p>Macro dominante: {forecast["top"]}</p>
+            <p>Estado dominante: {forecast["top_estado"]}</p>
+            <p>Contexto: {forecast["contexto"]}</p>
+            <p>{forecast["bias"]}</p>
+
+            </div>
+            """
+
+            st.markdown(html_card, unsafe_allow_html=True)
+
+            with st.expander("Jugadores macro"):
+                for jugador in forecast["jugadores"]:
+                    st.write(jugador)
+
+            with st.expander("Eventos relevantes"):
+                if forecast["eventos"]:
+                    for evento in forecast["eventos"]:
+                        st.write(evento)
+                else:
+                    st.write("Sin eventos macro relevantes")
+
+            with st.expander("Urano / Neptuno / Plutón"):
+                for g in forecast["generacionales"]:
+                    st.write(g)
+
+    
+with tab6:
+    st.header("📊 Backtest AstroFinance")
+
+    start = st.date_input(
+    "Fecha inicio",
+    datetime(2020, 1, 1),
+    format="DD/MM/YYYY"
+    )
+
+    end = st.date_input(
+        "Fecha fin",
+        datetime.today(),
+        format="DD/MM/YYYY"
+    )
+
+    asset = st.selectbox("Activo", ["^GSPC", "^IXIC", "^VIX"], index=0)
+
+    if st.button("Ejecutar backtest"):
+
+        precios = yf.download(
+            asset,
+            start=start,
+            end=end + timedelta(days=15),
+            auto_adjust=False
+        )
+
+        precios.index = pd.to_datetime(precios.index)
+        precios.index = pd.to_datetime(precios.index)
+
+        resultados = []
+        fechas = precios.loc[
+            (precios.index >= pd.Timestamp(start)) &
+            (precios.index <= pd.Timestamp(end))
+        ].index
+
+
+        fechas = fechas[::5]
+        
+        for f in fechas:
+            dia = f.date()
+
+            try:
+                forecast = calcular_forecast_dia(dia, market_regime)
+
+                close = precios["Close"]
+
+                if isinstance(close, pd.DataFrame):
+                    close = close[asset]
+
+                fecha_idx = pd.Timestamp(dia)
+
+                precio_hoy = float(close.loc[fecha_idx])
+                futuro_5d = float(close.shift(-5).loc[fecha_idx])
+                futuro_10d = float(close.shift(-10).loc[fecha_idx])
+
+                resultados.append({
+                    "Fecha": dia,
+                    "Score": forecast["score"],
+                    "Dirección": forecast["direction_score"],
+                    "Volatilidad": forecast["volatility_score"],
+                    "Especulación": forecast["speculative_score"],
+                    "Bias": forecast["bias_market"],
+                    "Retorno 5D %": ((futuro_5d / precio_hoy) - 1) * 100,
+                    "Retorno 10D %": ((futuro_10d / precio_hoy) - 1) * 100,
+                })
+
+            except Exception as e:
+                st.error(str(e))
+
+        df_backtest = pd.DataFrame(resultados).dropna()
+
+        st.dataframe(df_backtest)
+
+        corr_score = df_backtest["Score"].corr(df_backtest["Retorno 5D %"])
+        corr_dir = df_backtest["Dirección"].corr(df_backtest["Retorno 5D %"])
+        corr_vol = df_backtest["Volatilidad"].corr(abs(df_backtest["Retorno 5D %"]))
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Corr Score vs 5D", round(corr_score, 3))
+        col2.metric("Corr Dirección vs 5D", round(corr_dir, 3))
+        col3.metric("Corr Vol vs movimiento", round(corr_vol, 3))
+
+        st.subheader("Promedio por Bias")
+        st.dataframe(
+            df_backtest.groupby("Bias")[["Retorno 5D %", "Retorno 10D %"]].mean()
+        )
