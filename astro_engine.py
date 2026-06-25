@@ -667,6 +667,18 @@ def evaluar_relacion(p1, p2, orbe=8):
     direction -= max(fear_mix, 0) * fuerza["fuerza"] * 0.10
     speculation += max(-clarity_mix, 0) * fuerza["fuerza"] * 0.12
 
+    tendencia_relacion = relacion_aplicativa(p1, p2)
+
+    if tendencia_relacion == "aplicativa":
+        direction *= 1.10
+        speculation *= 1.10
+        volatility *= 1.15
+
+    elif tendencia_relacion == "separativa":
+        direction *= 0.90
+        speculation *= 0.90
+        volatility *= 0.85
+
     return {
         "planeta_1": p1["Planeta"],
         "planeta_2": p2["Planeta"],
@@ -675,6 +687,7 @@ def evaluar_relacion(p1, p2, orbe=8):
         "conjuncion": fuerza["conjuncion"],
         "mismo_signo": fuerza["mismo_signo"],
         "fuerza": fuerza["fuerza"],
+        "tendencia": tendencia_relacion,
         "direction": round(direction, 2),
         "speculation": round(speculation, 2),
         "volatility": round(volatility, 2),
@@ -1916,6 +1929,28 @@ PADA_POWER = {
     3: 0.98,
     4: 1.02,
 }
+
+def relacion_aplicativa(p1, p2):
+    distancia_hoy = distancia_angular(
+        p1["Longitud"],
+        p2["Longitud"]
+    )
+
+    lon1_manana = (p1["Longitud"] + p1["Velocidad"]) % 360
+    lon2_manana = (p2["Longitud"] + p2["Velocidad"]) % 360
+
+    distancia_manana = distancia_angular(
+        lon1_manana,
+        lon2_manana
+    )
+
+    if distancia_manana < distancia_hoy:
+        return "aplicativa"
+
+    if distancia_manana > distancia_hoy:
+        return "separativa"
+
+    return "estable"
 
 if __name__ == "__main__":
     fecha = datetime(2026, 4, 13)
